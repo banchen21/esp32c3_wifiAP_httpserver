@@ -22,11 +22,7 @@ fn main() -> Result<()> {
 
     let peripherals = Peripherals::take().unwrap();
     let sysloop = EspSystemEventLoop::take()?;
-
-    let ssid = "Redmi Turbo 3";
-    let pass = "";
-
-    let auth_method = AuthMethod::None;
+    
     let mut esp_wifi = EspWifi::new(peripherals.modem, sysloop.clone(), None)?;
     let mut wifi = BlockingWifi::wrap(&mut esp_wifi, sysloop)?;
     wifi.set_configuration(&WifiConfiguration::AccessPoint(
