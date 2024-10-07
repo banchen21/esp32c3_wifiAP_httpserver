@@ -1,17 +1,17 @@
 use core::str;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::prelude::Peripherals,
     http::{
-        client::{self, Configuration as HttpConfiguration, EspHttpConnection},
         server::{Configuration as ServerConfiguration, EspHttpServer},
         Method,
     },
     io::{EspIOError, Write},
     wifi::{
-        AuthMethod, BlockingWifi, ClientConfiguration, Configuration as WifiConfiguration, EspWifi,
+        AccessPointConfiguration, AuthMethod, BlockingWifi, Configuration as WifiConfiguration,
+        EspWifi,
     },
 };
 use log::info;
@@ -29,54 +29,11 @@ fn main() -> Result<()> {
     let auth_method = AuthMethod::None;
     let mut esp_wifi = EspWifi::new(peripherals.modem, sysloop.clone(), None)?;
     let mut wifi = BlockingWifi::wrap(&mut esp_wifi, sysloop)?;
-    wifi.set_configuration(&WifiConfiguration::Client(ClientConfiguration::default()))?;
-
-    info!("Starting wifi...");
-
+    wifi.set_configuration(&WifiConfiguration::AccessPoint(
+        AccessPointConfiguration::default(),
+    ))?;
     wifi.start()?;
-    info!("Scanning...");
 
-    let ap_infos = wifi.scan()?;
-
-    let ours = ap_infos.into_iter().find(|a| a.ssid == ssid);
-
-    let channel = if let Some(ours) = ours {
-        info!(
-            "Found configured access point {} on channel {}",
-            ssid, ours.channel
-        );
-        Some(ours.channel)
-    } else {
-        info!(
-            "Configured access point {} not found during scanning, will go with unknown channel",
-            ssid
-        );
-        None
-    };
-
-    wifi.set_configuration(&WifiConfiguration::Client(ClientConfiguration {
-        ssid: ssid
-            .try_into()
-            .expect("Could not parse the given SSID into WiFi config"),
-        password: pass
-            .try_into()
-            .expect("Could not parse the given password into WiFi config"),
-        channel,
-        auth_method,
-        ..Default::default()
-    }))?;
-
-    info!("连接wifi中");
-
-    wifi.connect()?;
-
-    info!("向wifi获取DHCP中");
-
-    wifi.wait_netif_up()?;
-
-    let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
-
-    info!("Wifi DHCP 信息: {:?}", ip_info);
     let conf = ServerConfiguration::default();
     let mut esp_httpserver = EspHttpServer::new(&conf)?;
     esp_httpserver.fn_handler(
