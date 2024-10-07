@@ -1,11 +1,20 @@
 use core::str;
 
-use esp_idf_svc::{
-    eventloop::EspSystemEventLoop, 
-    hal::prelude::Peripherals, http::{client::{self, Configuration as HttpConfiguration, EspHttpConnection}, Method},
-     wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration as WifiConfiguration, EspWifi}};
-use log::info;
 use anyhow::{bail, Result};
+use esp_idf_svc::{
+    eventloop::EspSystemEventLoop,
+    hal::prelude::Peripherals,
+    http::{
+        client::{self, Configuration as HttpConfiguration, EspHttpConnection},
+        server::{Configuration as ServerConfiguration, EspHttpServer},
+        Method,
+    },
+    io::{EspIOError, Write},
+    wifi::{
+        AuthMethod, BlockingWifi, ClientConfiguration, Configuration as WifiConfiguration, EspWifi,
+    },
+};
+use log::info;
 
 fn main() -> Result<()> {
     esp_idf_svc::sys::link_patches();
@@ -14,8 +23,8 @@ fn main() -> Result<()> {
     let peripherals = Peripherals::take().unwrap();
     let sysloop = EspSystemEventLoop::take()?;
 
-    let ssid="Redmi Turbo 3";
-    let pass="";
+    let ssid = "Redmi Turbo 3";
+    let pass = "";
 
     let auth_method = AuthMethod::None;
     let mut esp_wifi = EspWifi::new(peripherals.modem, sysloop.clone(), None)?;
@@ -68,55 +77,41 @@ fn main() -> Result<()> {
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
 
     info!("Wifi DHCP 信息: {:?}", ip_info);
-    get("http://neverssl.com/")?;
-
+    let conf = ServerConfiguration::default();
+    let mut esp_httpserver = EspHttpServer::new(&conf)?;
+    esp_httpserver.fn_handler(
+        "/",
+        Method::Get,
+        |request| -> core::result::Result<(), EspIOError> {
+            let html = index_html();
+            let mut response = request.into_ok_response()?;
+            response.write_all(html.as_bytes())?;
+            Ok(())
+        },
+    )?;
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
-fn get(url: impl AsRef<str>) -> Result<()> {
-    let config = HttpConfiguration::default();
-    let connection = EspHttpConnection::new(&config)?;
-    let mut client = embedded_svc::http::client::Client::wrap(connection);
-    let headers = [("accept", "text/plain")];
 
-    let request=client.request(Method::Get, url.as_ref(), &headers)?;
-    let response = request.submit()?;
-    let status = response.status();
-    println!("Response code: {}\n", status);
-    match status {
-        200..=299 => {
-            let mut buf = [0_u8; 256];
-            let mut offset = 0;
-            let mut total = 0;
-            let mut reader = response;
-            loop {
-                if let Ok(size) = embedded_svc::io::Read::read(&mut reader, &mut buf[offset..]) {
-                    if size == 0 {
-                        break;
-                    }
-                    total += size;
-                    let size_plus_offset = size + offset;
-                    match str::from_utf8(&buf[..size_plus_offset]) {
-                        Ok(text) => {
-                            print!("{}", text);
-                            offset = 0;
-                        }
-                        Err(error) => {
-                            let valid_up_to = error.valid_up_to();
-                            unsafe {
-                                print!("{}", str::from_utf8_unchecked(&buf[..valid_up_to]));
-                            }
-                            buf.copy_within(valid_up_to.., 0);
-                            offset = size_plus_offset - valid_up_to;
-                        }
-                    }
-                }
-            }
-            println!("Total: {} bytes", total);
-        }
-        _ => bail!("Unexpected response code: {}", status),
-    }
+fn templated(content: impl AsRef<str>) -> String {
+    format!(
+        r#"
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>esp-rs web server</title>
+    </head>
+    <body>
+        {}
+    </body>
+</html>
+"#,
+        content.as_ref()
+    )
+}
 
-    Ok(())
+fn index_html() -> String {
+    templated("Hello from mcu!")
 }
